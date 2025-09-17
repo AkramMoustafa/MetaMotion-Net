@@ -8,18 +8,27 @@ from scipy.signal import butter, filtfilt
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QTextEdit, QLabel
+    QPushButton, QTextEdit, QLabel, QComboBox
 )
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QColor, QFont
 from snaptic_sdk import PySnapticSDK
 
-SAMPLE_RATE = 48 # Hz
-WINDOW_SECONDS = 2.56  # window length
+SAMPLE_RATE = 48  # Hz
+WINDOW_SECONDS = 2.65  # window length
 WINDOW_SIZE = int(SAMPLE_RATE * WINDOW_SECONDS)
 
+AVAILABLE_GESTURES = [
+    "no_gesture",
+    "swipe_up",
+    "swipe_left",
+    "swipe_right",
+]
 
 class SnapticWorker(QThread):
+    # One-shot gesture from UI
+    gesture_once = pyqtSignal(str)
+    # Logging/status back to UI
     log_signal = pyqtSignal(str, str)
 
     def __init__(self, logfile=None):
@@ -30,35 +39,40 @@ class SnapticWorker(QThread):
         self.csv_file = None
         self.csv_writer = None
 
-        # Rolling buffer for preprocessing
+        # Rolling buffer
         self.buffer = deque(maxlen=WINDOW_SIZE)
 
+        # Labeling state
+        self._one_shot = None
+        self._last_logged_gesture = "no_gesture"
+
+        self.gesture_once.connect(self.on_gesture_once)
+
+    @pyqtSlot(str)
+    def on_gesture_once(self, gesture):
+        """Set a one-shot gesture to be used on the next CSV row only."""
+        self._one_shot = gesture or "no_gesture"
+        self.log_signal.emit(f"One-shot gesture armed: {self._one_shot}", "info")
+
     def preprocess_and_predict(self):
-        """Preprocess buffer into model-ready window & predict."""
+        """Preprocess buffer into model-ready window & predict (placeholder)."""
         if len(self.buffer) < WINDOW_SIZE:
             return None
 
-        # create a window
         window = np.array(self.buffer)
-
-        # remove mean from signals
         window = window - np.mean(window, axis=0, keepdims=True)
 
-        # normalize output to be between [-1, 1]
         denom = np.maximum(np.max(np.abs(window), axis=0, keepdims=True), 1e-6)
         normed = window / denom
 
-        # only pass values lower than 15hz
         b, a = butter(4, 15 / (SAMPLE_RATE / 2), btype="low")
         window = filtfilt(b, a, window, axis=0)
 
-        # moving average smoothing
         kernel = np.ones(5) / 5
         normed = np.apply_along_axis(
             lambda m: np.convolve(m, kernel, mode="same"), axis=0, arr=normed
         )
 
-        # TODO: replace with your ML model
         fake_pred = np.random.choice(["walking", "running", "idle"])
         return fake_pred
 
@@ -82,17 +96,21 @@ class SnapticWorker(QThread):
             self.csv_writer = csv.writer(self.csv_file)
             self.csv_writer.writerow([
                 "time", "packet_num", "acc_x", "acc_y", "acc_z",
-                "gyro_x", "gyro_y", "gyro_z"
+                "gyro_x", "gyro_y", "gyro_z", "gesture"
             ])
 
         try:
             start = time.time()
-            while self.running and time.time() - start < 60:  
+            while self.running and time.time() - start < 60:
                 data = self.snaptic.get_imu_data()
                 if data:
                     for pkt in data["packets"]:
-                        acc_x, acc_y, acc_z = pkt["MainAccel"]["X"], pkt["MainAccel"]["Y"], pkt["MainAccel"]["Z"]
-                        gyro_x, gyro_y, gyro_z = pkt["MainGyro"]["X"], pkt["MainGyro"]["Y"], pkt["MainGyro"]["Z"]
+                        acc_x = pkt["MainAccel"]["X"]
+                        acc_y = pkt["MainAccel"]["Y"]
+                        acc_z = pkt["MainAccel"]["Z"]
+                        gyro_x = pkt["MainGyro"]["X"]
+                        gyro_y = pkt["MainGyro"]["Y"]
+                        gyro_z = pkt["MainGyro"]["Z"]
 
                         msg = (
                             f"Packet {pkt['PacketNum']} | "
@@ -101,23 +119,35 @@ class SnapticWorker(QThread):
                         )
                         self.log_signal.emit(msg, "data")
 
+                        # Gesture logic: one-shot, then revert
+                        if self._one_shot:
+                            gesture_to_write = self._one_shot
+                            self._one_shot = None
+                            self.log_signal.emit("Gesture auto-reset to 'no_gesture'.", "info")
+                        else:
+                            gesture_to_write = "no_gesture"
+
                         if self.csv_writer:
                             self.csv_writer.writerow([
                                 data["time"], pkt["PacketNum"],
                                 acc_x, acc_y, acc_z,
-                                gyro_x, gyro_y, gyro_z
+                                gyro_x, gyro_y, gyro_z,
+                                gesture_to_write
                             ])
 
-                        # push into buffer
+                        # Push into buffer
                         self.buffer.append([acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z])
 
-                        # run continuous prediction if buffer full
+                        if gesture_to_write != self._last_logged_gesture:
+                            self.log_signal.emit(f"CSV label now: {gesture_to_write}", "info")
+                            self._last_logged_gesture = gesture_to_write
+
+                        # Continuous prediction if buffer full
                         if len(self.buffer) == WINDOW_SIZE:
                             pred = self.preprocess_and_predict()
                             if pred:
                                 self.log_signal.emit(f"Prediction: {pred}", "success")
 
-                            # 50% overlap
                             for _ in range(WINDOW_SIZE // 2):
                                 if self.buffer:
                                     self.buffer.popleft()
@@ -137,7 +167,7 @@ class SnapticUI(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Snaptic IMU Logger")
-        self.setGeometry(200, 200, 700, 500)
+        self.setGeometry(200, 200, 750, 560)
 
         layout = QVBoxLayout()
 
@@ -145,11 +175,29 @@ class SnapticUI(QWidget):
         self.status_label.setStyleSheet("color: goldenrod; font-weight: bold;")
         layout.addWidget(self.status_label)
 
+        # Top bar: gesture dropdown + one-shot button
+        top_bar = QHBoxLayout()
+
+        self.gesture_combo = QComboBox()
+        self.gesture_combo.addItems(AVAILABLE_GESTURES)
+        self.gesture_combo.setEditable(False)
+        top_bar.addWidget(QLabel("Gesture:"))
+        top_bar.addWidget(self.gesture_combo)
+
+        self.pulse_btn = QPushButton("Do Gesture (one row)")
+        self.pulse_btn.clicked.connect(self.pulse_gesture_once)
+        top_bar.addWidget(self.pulse_btn)
+
+        top_bar.addStretch(1)
+        layout.addLayout(top_bar)
+
+        # Log window
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setFont(QFont("Courier New", 10))
         layout.addWidget(self.log_box)
 
+        # Start/Stop buttons
         btn_layout = QHBoxLayout()
         self.start_btn = QPushButton("Start Logging")
         self.start_btn.clicked.connect(self.start_logging)
@@ -181,11 +229,23 @@ class SnapticUI(QWidget):
             self.worker.log_signal.connect(self.log)
             self.worker.start()
             self.log(f"Logging to {logfile}", "info")
+        else:
+            self.log("Already logging.", "info")
 
     def stop_logging(self):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.log("Stop requested...", "info")
+        else:
+            self.log("Not running.", "info")
+
+    def pulse_gesture_once(self):
+        if not self.worker or not self.worker.isRunning():
+            self.log("Start logging before marking gestures.", "error")
+            return
+        gesture = self.gesture_combo.currentText()
+        self.worker.gesture_once.emit(gesture)
+        self.log(f"Marking '{gesture}' for ONE row only...", "info")
 
 
 if __name__ == "__main__":
