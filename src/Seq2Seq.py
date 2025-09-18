@@ -73,7 +73,7 @@ class Seq2Seq(nn.Module):
         device = X_in.device
         output, (h, c) = self.encoder(X_in)
 
-        y_prev = X_in[:, -1:, :]  # last timestep
+        y_prev = X_in[:, -1:, :] 
         preds = []
         all_attn = []
         for t in range(T):
@@ -91,11 +91,14 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     crit = nn.MSELoss()
 
+    
     for ep in range(1, epochs+1):
         model.train()
         train_loss = 0.0
+
         for X_in, Y_out in train_loader:
             X_in, Y_out = X_in.to(device), Y_out.to(device)
+            
             optim.zero_grad()
             pred, _ = model(X_in, Y_out)
             loss = crit(pred, Y_out)
@@ -104,14 +107,15 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
             optim.step()
             train_loss += loss.item()
 
+        # Validation
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for X_in, Y_out in val_loader:
-                X_in, Y_out = X_in.to(device), Y_out.to(device)
-                pred = model(X_in, Y_out=None)
-                loss = crit(pred, Y_out)
-                val_loss += loss.item()
+          for X_in, Y_out in val_loader:
+              X_in, Y_out = X_in.to(device), Y_out.to(device)
+              pred, _ = model(X_in, Y_out=None)   
+              loss = crit(pred, Y_out)
+              val_loss += loss.item()
 
-        print(f"Epoch {ep:02d} | train MSE {train_loss/len(train_loader):.6f} "
-              f"| val MSE {val_loss/len(val_loader):.6f}")
+          print(f"Epoch {ep:02d} | train MSE {train_loss/len(train_loader):.6f} "
+                f"| val MSE {val_loss/len(val_loader):.6f}")
