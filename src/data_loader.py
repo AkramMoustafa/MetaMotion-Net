@@ -1,6 +1,8 @@
 # data_loader.py
 import numpy as np
 import torch
+import glob
+import pandas as pd
 from torch.utils.data import Dataset
 from scipy.signal import butter, filtfilt
 
@@ -53,7 +55,48 @@ class MUSeq2SeqDataset(Dataset):
         x_in = x[:self.t_in]             
         y_out = x[1:self.t_in+1]          
         return x_in, y_out
+       
+    @staticmethod
+    def make_windows(data, labels, window_size=24, stride=6):
 
+        X_windows, y_windows = [], []
+        for start in range(0, len(data) - window_size + 1, stride):
+            end = start + window_size
+            window = data[start:end]
+            window_labels = labels[start:end]
+
+            # this is using majority vote right here
+            unique, counts = np.unique(window_labels, return_counts=True)
+            label = unique[np.argmax(counts)]
+
+            X_windows.append(window)
+            y_windows.append(label)
+
+        return np.stack(X_windows), np.array(y_windows)
+    
+    @staticmethod
+    def combine_csv_files(pattern="*.csv", window_size=24, stride=6):
+
+        X_all, y_all = [], []
+
+        for f in glob.glob(pattern):
+            df = pd.read_csv(f)
+
+            # Extract IMU channels and labels
+            data = df[["acc_x","acc_y","acc_z","gyro_x","gyro_y","gyro_z"]].values
+            labels = df["gesture"].values
+
+            # Windowing
+            X, y = MUSeq2SeqDataset.make_windows(data, labels, window_size, stride)
+            X_all.append(X)
+            y_all.append(y)
+
+        # Concatenate all files
+        X_all = np.concatenate(X_all, axis=0)
+        y_all = np.concatenate(y_all, axis=0)
+
+        print("Final dataset:", X_all.shape, y_all.shape)
+        return X_all, y_all
 
 def split_train_val(X, val_ratio=0.2, seed=42):
     """Split dataset into train/val sets"""
