@@ -119,3 +119,29 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
 
           print(f"Epoch {ep:02d} | train MSE {train_loss/len(train_loader):.6f} "
                 f"| val MSE {val_loss/len(val_loader):.6f}")
+
+
+class ActivityClassifier(nn.Module):
+    """
+    BiLSTM classifier for activity recognition from IMU sequences.
+    """
+    def __init__(self, input_dim=6, hidden_dim=128, num_layers=2, num_classes=5, dropout=0.2):
+        super().__init__()
+        self.bilstm = nn.LSTM(
+            input_size=input_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=True
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden_dim * 2, num_classes)  # *2 for BiLSTM
+
+    def forward(self, x):
+        out, _ = self.bilstm(x)
+        out = out[:, -1, :]
+        out = self.dropout(out)
+        logits = self.fc(out)
+        return logits
+

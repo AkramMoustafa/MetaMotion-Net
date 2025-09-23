@@ -6,13 +6,14 @@ import pandas as pd
 from torch.utils.data import Dataset
 from scipy.signal import butter, filtfilt
 
-class MUSeq2SeqDataset(Dataset):
+class IMUSeq2SeqDataset(Dataset):
     """
     Preprocess raw IMU window (mean removal, normalization, filtering, smoothing).
     """
-    def __init__(self, X, t_in=127, sample_rate=48, lowpass_cutoff=15,
+    def __init__(self, X, Y, t_in=127, sample_rate=48, lowpass_cutoff=15,
                  mean_removal=True, normalize=True, lowpass=True, smoothing=True):
-        self.X = torch.tensor(X, dtype=torch.float32)  # (N, T, C)
+        self.X = torch.tensor(X, dtype=torch.float32) 
+        self.Y = torch.tensor(Y, dtype=torch.float32)
         self.t_in = t_in
 
         # Flags for preprocessing
@@ -53,21 +54,25 @@ class MUSeq2SeqDataset(Dataset):
         x = torch.tensor(x, dtype=torch.float32)
 
         x_in = x[:self.t_in]             
-        y_out = x[1:self.t_in+1]          
-        return x_in, y_out
+        y_out = x[1:self.t_in+1] 
+        y_label = self.Y[idx]  
+
+        return x_in, y_out, y_label
        
     @staticmethod
-    def make_windows(data, labels, window_size=24, stride=6):
+    def make_windows(data, labels, window_size=24, stride=6, no_class="no_gesture"):
 
         X_windows, y_windows = [], []
         for start in range(0, len(data) - window_size + 1, stride):
             end = start + window_size
             window = data[start:end]
             window_labels = labels[start:end]
-
+            gesture_labels = [lab for lab in window_labels if lab != no_class]
             # this is using majority vote right here
-            unique, counts = np.unique(window_labels, return_counts=True)
-            label = unique[np.argmax(counts)]
+            if len(gesture_labels) > 0:
+              label = gesture_labels[0] 
+            else:
+              label = no_class   
 
             X_windows.append(window)
             y_windows.append(label)
@@ -94,9 +99,14 @@ class MUSeq2SeqDataset(Dataset):
         # Concatenate all files
         X_all = np.concatenate(X_all, axis=0)
         y_all = np.concatenate(y_all, axis=0)
-
-        print("Final dataset:", X_all.shape, y_all.shape)
-        return X_all, y_all
+        classes = np.unique(y_all)
+        class_to_idx = {c: i for i, c in enumerate(classes)}
+        y_onehot = np.zeros((len(y_all), len(classes)), dtype=np.float32)
+        for i, label in enumerate(y_all):
+          y_onehot[i, class_to_idx[label]] = 1.0
+        print("Classes:", classes)
+        print("Final dataset:", X_all.shape, y_onehot.shape)
+        return X_all, y_onehot, classes
 
 def split_train_val(X, val_ratio=0.2, seed=42):
     """Split dataset into train/val sets"""
