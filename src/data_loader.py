@@ -92,7 +92,7 @@ class IMUSeq2SeqDataset(Dataset):
             labels = df["gesture"].values
 
             # Windowing
-            X, y = MUSeq2SeqDataset.make_windows(data, labels, window_size, stride)
+            X, y = IMUSeq2SeqDataset.make_windows(data, labels, window_size, stride)
             X_all.append(X)
             y_all.append(y)
 
@@ -108,11 +108,11 @@ class IMUSeq2SeqDataset(Dataset):
         print("Final dataset:", X_all.shape, y_onehot.shape)
         return X_all, y_onehot, classes
 
-def split_train_val(X, val_ratio=0.2, seed=42):
+def split_train_val(X, Y, val_ratio=0.2, seed=42):
     """Split dataset into train/val sets"""
     np.random.seed(seed)
     idx = np.arange(len(X))
     np.random.shuffle(idx)
     n_val = int(len(X) * val_ratio)
     val_idx, train_idx = idx[:n_val], idx[n_val:]
-    return X[train_idx], X[val_idx]
+    return  X[train_idx], Y[train_idx], X[val_idx], Y[val_idx]

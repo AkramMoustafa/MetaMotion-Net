@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import math
 
+"""
+In this file the classification doesn't benefit from the sequence prediction I will create anohter file named as Seq2SeqWithClassifier
+"""
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super().__init__()
@@ -60,7 +64,6 @@ class Decoder(nn.Module):
          pred = self.fc(attn_out)  
          return pred, hidden, attn_weights
 
-
 class Seq2Seq(nn.Module):
     def __init__(self, encoder, decoder, teacher_forcing=0.5):
         super().__init__()
@@ -96,7 +99,7 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
         model.train()
         train_loss = 0.0
 
-        for X_in, Y_out in train_loader:
+        for X_in, Y_out, _ in train_loader:
             X_in, Y_out = X_in.to(device), Y_out.to(device)
             
             optim.zero_grad()
@@ -111,7 +114,7 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-          for X_in, Y_out in val_loader:
+          for X_in, Y_out, _ in val_loader:
               X_in, Y_out = X_in.to(device), Y_out.to(device)
               pred, _ = model(X_in, Y_out=None)   
               loss = crit(pred, Y_out)
@@ -119,7 +122,6 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
 
           print(f"Epoch {ep:02d} | train MSE {train_loss/len(train_loader):.6f} "
                 f"| val MSE {val_loss/len(val_loader):.6f}")
-
 
 class ActivityClassifier(nn.Module):
     """
@@ -139,9 +141,43 @@ class ActivityClassifier(nn.Module):
         self.fc = nn.Linear(hidden_dim * 2, num_classes)  # *2 for BiLSTM
 
     def forward(self, x):
-        out, _ = self.bilstm(x)
-        out = out[:, -1, :]
+        out, _ = self.bilstm(x)       # (batch, seq_len, hidden*2)
+        out = out[:, -1, :]           # last timestep
         out = self.dropout(out)
-        logits = self.fc(out)
+        logits = self.fc(out)         # (batch, num_classes)
         return logits
 
+
+def train_classifier(model, train_loader, val_loader, epochs=10, lr=1e-3, device="cpu"):
+    """
+    Training loop for ActivityClassifier
+    """
+    optim = torch.optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.BCEWithLogitsLoss()   # since labels are one-hot encoded
+
+    for ep in range(1, epochs+1):
+        # Training
+        model.train()
+        train_loss = 0.0
+        for X_in, _, y_label in train_loader:   # ignore y_out
+            X_in, y_label = X_in.to(device), y_label.to(device)
+
+            optim.zero_grad()
+            logits = model(X_in)
+            loss = criterion(logits, y_label)
+            loss.backward()
+            optim.step()
+            train_loss += loss.item()
+
+        # Validation
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for X_in, _, y_label in val_loader:
+                X_in, y_label = X_in.to(device), y_label.to(device)
+                logits = model(X_in)
+                loss = criterion(logits, y_label)
+                val_loss += loss.item()
+
+        print(f"Epoch {ep:02d} | train loss {train_loss/len(train_loader):.4f} "
+              f"| val loss {val_loss/len(val_loader):.4f}")
