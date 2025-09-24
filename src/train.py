@@ -1,29 +1,49 @@
-# train.py
-import torch
+
 import numpy as np
-from torch.utils.data import DataLoader
 from src.data_loader import IMUSeq2SeqDataset, split_train_val
-from src.seq2seq import Encoder, Decoder, Seq2Seq, train_loop
+from src.Seq2Seq import Encoder, Decoder, Seq2Seq, train_loop
+from  src.Seq2SeqWithClassifier import Seq2SeqWithClassifier, train_joint
+import torch
+from torch.utils.data import DataLoader
+t_in = 24  
 
-if __name__ == "__main__":
-    data = np.load("UCIHAR_train_seq.npz")
-    X = data["X"]  # (7352,128,9)
+# Detect device
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    X_tr, X_va = split_train_val(X)
-    mu = X_tr.mean(axis=(0,1), keepdims=True)
-    sd = X_tr.std(axis=(0,1), keepdims=True)
-    sd[sd < 1e-8] = 1.0
+# Build encoder/decoder
+encoder = Encoder(input_dim=6, d_model=128, hidden_dim=128)
+decoder = Decoder(output_dim=6, hidden_dim=128, num_heads=8)
+# model = Seq2Seq(encoder, decoder, teacher_forcing=0.5)
 
-    T_IN = 127
-    train_ds = IMUSeq2SeqDataset(X_tr, t_in=T_IN, mean_std=(torch.tensor(mu), torch.tensor(sd)))
-    val_ds   = IMUSeq2SeqDataset(X_va, t_in=T_IN, mean_std=(train_ds.mu, train_ds.sd))
+X_all, Y_all, classes = IMUSeq2SeqDataset.combine_csv_files("*.csv")
 
-    train_loader = DataLoader(train_ds, batch_size=128, shuffle=True, drop_last=True)
-    val_loader   = DataLoader(val_ds, batch_size=128, shuffle=False)
+# Create dataset
+dataset = IMUSeq2SeqDataset(X_all, Y_all, t_in)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    enc = Encoder(in_dim=9, hidden=128)
-    dec = Decoder(out_dim=9, hidden=128)
-    model = Seq2Seq(enc, dec, teacher_forcing=0.5).to(device)
+# Inspect one sample
+x_in, y_out, y_label = dataset[0]
+X_train, Y_train, X_val, Y_val = split_train_val(X_all, Y_all, val_ratio=0.2)
 
-    train_loop(model, train_loader, val_loader, epochs=25, lr=1e-3, device=device)
+train_ds = IMUSeq2SeqDataset(X_train, Y_train, t_in)
+val_ds   = IMUSeq2SeqDataset(X_val,   Y_val, t_in)
+
+train_loader = DataLoader(train_ds, batch_size=128, shuffle=True, drop_last=True)
+val_loader   = DataLoader(val_ds,   batch_size=128, shuffle=False, drop_last=False)
+
+model = Seq2SeqWithClassifier(
+    encoder=encoder,
+    decoder=decoder,
+    num_classes=len(classes),
+    teacher_forcing=0.5,
+    alpha=0.5
+).to(device)
+
+train_joint(
+    model,
+    train_loader,
+    val_loader,
+    epochs=20,
+    lr=1e-3,
+    device=device
+)
+

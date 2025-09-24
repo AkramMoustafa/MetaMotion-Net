@@ -38,8 +38,7 @@ class Seq2SeqWithClassifier(nn.Module):
 def train_joint(model, train_loader, val_loader, epochs=10, lr=1e-3, device="cpu"):
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     mse_loss = nn.MSELoss()
-    bce_loss = nn.BCEWithLogitsLoss()
-
+    ce_loss = nn.CrossEntropyLoss()
     for ep in range(1, epochs+1):
         model.train()
         train_loss = 0.0
@@ -50,12 +49,12 @@ def train_joint(model, train_loader, val_loader, epochs=10, lr=1e-3, device="cpu
             forecast, logits = model(X_in, Y_out)
 
             loss_forecast = mse_loss(forecast, Y_out)
-            loss_classify = bce_loss(logits, y_label)
-            loss = loss_forecast + model.alpha * loss_classify
+            loss_classify = ce_loss(logits, y_label) 
+            loss = (1 - model.alpha) * loss_forecast + model.alpha * loss_classify
 
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optim.step()
             train_loss += loss.item()
-
+            
         print(f"Epoch {ep:02d} | train joint loss {loss_forecast/len(train_loader):.4f} | Loss Classify {loss_classify}")
