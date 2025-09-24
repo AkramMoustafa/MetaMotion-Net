@@ -17,12 +17,14 @@ class Seq2SeqWithClassifier(nn.Module):
 
         encoder_outputs, (h, c) = self.encoder(X_in)
 
-        h_last = h[-1]            
+        # Take the last hidden state
+        h_last = h[-1]
+        # put it in neural network for classification
         logits = self.classifier_fc(h_last)
 
         y_prev = X_in[:, -1:, :]
         preds = []
-        for t in range(T):
+        for t in range(T-1):
             pred, (h, c), _ = self.decoder(y_prev, (h, c), encoder_outputs)
             preds.append(pred)
             if (Y_out is not None) and (torch.rand(1, device=device) < self.teacher_forcing):
@@ -56,4 +58,4 @@ def train_joint(model, train_loader, val_loader, epochs=10, lr=1e-3, device="cpu
             optim.step()
             train_loss += loss.item()
 
-        print(f"Epoch {ep:02d} | train joint loss {train_loss/len(train_loader):.4f}")
+        print(f"Epoch {ep:02d} | train joint loss {loss_forecast/len(train_loader):.4f} | Loss Classify {loss_classify}")

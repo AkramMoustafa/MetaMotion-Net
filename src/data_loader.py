@@ -54,7 +54,7 @@ class IMUSeq2SeqDataset(Dataset):
         x = torch.tensor(x, dtype=torch.float32)
 
         x_in = x[:self.t_in]             
-        y_out = x[1:self.t_in+1] 
+        y_out = x[1:self.t_in] 
         y_label = self.Y[idx]  
 
         return x_in, y_out, y_label
