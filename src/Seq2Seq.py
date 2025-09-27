@@ -76,17 +76,23 @@ class Seq2Seq(nn.Module):
         device = X_in.device
         output, (h, c) = self.encoder(X_in)
 
-        y_prev = X_in[:, -1:, :] 
+        y_prev = torch.zeros(B, 1, C, device=device) 
         preds = []
         all_attn = []
         for t in range(T):
-            pred, (h, c), attn_w = self.decoder(y_prev, (h, c), output)
-            preds.append(pred)
-            all_attn.append(attn_w)
-            if (Y_out is not None) and (torch.rand(1, device=device) < self.teacher_forcing):
-                y_prev = Y_out[:, t:t+1, :]
-            else:
-                y_prev = pred.detach()
+             if t == 0:
+        # first decoder input = zero vector
+              y_prev = torch.zeros(B, 1, C, device=device)
+             else:
+                
+                  if (Y_out is not None) and (torch.rand(1, device=device) < self.teacher_forcing):
+                      y_prev = Y_out[:, t-1:t, :]   
+                  else:
+                      y_prev = preds[-1].detach()
+
+             pred, (h, c), attn_w = self.decoder(y_prev, (h, c), output)
+             preds.append(pred)
+             all_attn.append(attn_w)
 
         return torch.cat(preds, dim=1), all_attn
 
@@ -122,62 +128,3 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
 
           print(f"Epoch {ep:02d} | train MSE {train_loss/len(train_loader):.6f} "
                 f"| val MSE {val_loss/len(val_loader):.6f}")
-
-class ActivityClassifier(nn.Module):
-    """
-    BiLSTM classifier for activity recognition from IMU sequences.
-    """
-    def __init__(self, input_dim=6, hidden_dim=128, num_layers=2, num_classes=5, dropout=0.2):
-        super().__init__()
-        self.bilstm = nn.LSTM(
-            input_size=input_dim,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-            bidirectional=True
-        )
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden_dim * 2, num_classes)  # *2 for BiLSTM
-
-    def forward(self, x):
-        out, _ = self.bilstm(x)       # (batch, seq_len, hidden*2)
-        out = out[:, -1, :]           # last timestep
-        out = self.dropout(out)
-        logits = self.fc(out)         # (batch, num_classes)
-        return logits
-
-
-def train_classifier(model, train_loader, val_loader, epochs=10, lr=1e-3, device="cpu"):
-    """
-    Training loop for ActivityClassifier
-    """
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.BCEWithLogitsLoss()   # since labels are one-hot encoded
-
-    for ep in range(1, epochs+1):
-        # Training
-        model.train()
-        train_loss = 0.0
-        for X_in, _, y_label in train_loader:   # ignore y_out
-            X_in, y_label = X_in.to(device), y_label.to(device)
-
-            optim.zero_grad()
-            logits = model(X_in)
-            loss = criterion(logits, y_label)
-            loss.backward()
-            optim.step()
-            train_loss += loss.item()
-
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_in, _, y_label in val_loader:
-                X_in, y_label = X_in.to(device), y_label.to(device)
-                logits = model(X_in)
-                loss = criterion(logits, y_label)
-                val_loss += loss.item()
-
-        print(f"Epoch {ep:02d} | train loss {train_loss/len(train_loader):.4f} "
-              f"| val loss {val_loss/len(val_loader):.4f}")
