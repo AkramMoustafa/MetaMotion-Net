@@ -13,6 +13,7 @@ class IMUSeq2SeqDataset(Dataset):
     def __init__(self, X, Y, t_in=127, sample_rate=48, lowpass_cutoff=15,
                  mean_removal=True, normalize=True, lowpass=True, smoothing=True):
         self.X = torch.tensor(X, dtype=torch.float32) 
+        
         self.Y = torch.tensor(Y, dtype=torch.float32)
         self.t_in = t_in
 
@@ -54,7 +55,7 @@ class IMUSeq2SeqDataset(Dataset):
         x = torch.tensor(x, dtype=torch.float32)
 
         x_in = x[:self.t_in]             
-        y_out = x[1:self.t_in] 
+        y_out = x[:self.t_in] 
         y_label = self.Y[idx]  
 
         return x_in, y_out, y_label

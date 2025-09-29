@@ -68,26 +68,28 @@ class Seq2Seq(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         self.teacher_forcing = teacher_forcing
-
+        self.out2hid = nn.Linear(6,128)
     def forward(self, X_in, Y_out=None):
+      
         B, T, C = X_in.shape
         device = X_in.device
         output, (h, c) = self.encoder(X_in)
 
-        y_prev = torch.zeros(B, 1, C, device=device) 
         preds = []
         all_attn = []
         for t in range(T):
              if t == 0:
         # first decoder input = zero vector
-              y_prev = torch.zeros(B, 1, C, device=device)
+              y_prev = torch.zeros(B, 1, 128, device=device)
              else:
-                
-                  if (Y_out is not None) and (torch.rand(1, device=device) < self.teacher_forcing):
-                      y_prev = Y_out[:, t-1:t, :]   
-                  else:
-                      y_prev = preds[-1].detach()
-
+                  # if (Y_out is not None) and (torch.rand(1, device=device) < self.teacher_forcing):
+                  #     # y_out size 6
+                  #     y_prev = self.out2hid(Y_out[:, t-1:t, :])   
+                  # else:
+                      # size 128
+                y_prev = self.out2hid(preds[-1].detach())   
+            
+             # expected y_prev size 128
              pred, (h, c), attn_w = self.decoder(y_prev, (h, c), output)
              preds.append(pred)
              all_attn.append(attn_w)
@@ -98,7 +100,6 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     crit = nn.MSELoss()
 
-    
     for ep in range(1, epochs+1):
         model.train()
         train_loss = 0.0
@@ -107,7 +108,7 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
             X_in, Y_out = X_in.to(device), Y_out.to(device)
             
             optim.zero_grad()
-            pred, _ = model(X_in, Y_out)
+            pred, _ = model(X_in)
             loss = crit(pred, Y_out)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -120,7 +121,7 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
         with torch.no_grad():
           for X_in, Y_out, _ in val_loader:
               X_in, Y_out = X_in.to(device), Y_out.to(device)
-              pred, _ = model(X_in, Y_out=None)   
+              pred, _ = model(X_in)   
               loss = crit(pred, Y_out)
               val_loss += loss.item()
 
