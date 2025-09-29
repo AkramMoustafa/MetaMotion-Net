@@ -23,7 +23,6 @@ class PositionalEncoding(nn.Module):
         seq_len = x.size(1)
         return x + self.pe[:, :seq_len, :]
 
-
 class Encoder(nn.Module):
     def __init__(self, input_dim=6, d_model=128, hidden_dim=128, num_layers=1, dropout=0.0):
         super().__init__()
@@ -48,14 +47,13 @@ class Decoder(nn.Module):
     def __init__(self, output_dim=6, hidden_dim=128, num_layers=1, num_heads=16):
         super().__init__()
         self.lstm = nn.LSTM(
-          input_size=output_dim,
+          input_size=hidden_dim,
           hidden_size=hidden_dim,
           num_layers=num_layers,
           batch_first=True
         )
         self.attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
-
 
     def forward(self, y_prev, hidden, encoder_outputs):
          out, hidden = self.lstm(y_prev, hidden)
