@@ -13,8 +13,6 @@ class IMUSeq2SeqDataset(Dataset):
     def __init__(self, X, Y, t_in=127, sample_rate=48, lowpass_cutoff=15,
                  mean_removal=True, normalize=True, lowpass=True, smoothing=True):
         self.X = torch.tensor(X, dtype=torch.float32) 
-        
-        self.Y = torch.tensor(Y, dtype=torch.float32)
         self.t_in = t_in
 
         # Flags for preprocessing
@@ -36,7 +34,7 @@ class IMUSeq2SeqDataset(Dataset):
         window = window / denom
 
         # 3. filtering
-        window = filtfilt(self.b, self.a, window, axis=0)
+        window = filtfilt(self.b, self.a, window, axis=0, padlen=min(15, window.shape[0]-1))
 
         # 4. Moving average
         kernel = np.ones(5) / 5
@@ -50,70 +48,72 @@ class IMUSeq2SeqDataset(Dataset):
 
     def __getitem__(self, idx):
         # Convert tensor to numpy for preprocessing
-        x = self.X[idx].numpy()           
-        x = self.transform(x)           
+        x = self.X[idx].numpy()
+        x = self.transform(x)
         x = torch.tensor(x, dtype=torch.float32)
 
-        x_in = x[:self.t_in]             
-        y_out = x[:self.t_in] 
-        y_label = self.Y[idx]  
+        x_in = x[:self.t_in]
+        y_out = x[self.t_in:]  
 
-        return x_in, y_out, y_label
+        return x_in, y_out
        
     @staticmethod
-    def make_windows(data, labels, window_size=24, stride=6, no_class="no_gesture"):
+    def make_windows(data, window_size=24, stride=6, t_in=None, t_out=None):
+        """
+        Create sliding windows for sequence prediction.
+        Each window is split into input (x_in) and output (y_out).
+        """
+        X_in, Y_out = [], []
 
-        X_windows, y_windows = [], []
+        if t_in is None:
+            t_in = window_size // 2   # default: half input
+        if t_out is None:
+            t_out = window_size - t_in
+
         for start in range(0, len(data) - window_size + 1, stride):
             end = start + window_size
             window = data[start:end]
-            window_labels = labels[start:end]
-            gesture_labels = [lab for lab in window_labels if lab != no_class]
-            # this is using majority vote right here
-            if len(gesture_labels) > 0:
-              label = gesture_labels[0] 
-            else:
-              label = no_class   
 
-            X_windows.append(window)
-            y_windows.append(label)
+            # Split into input/output sequences
+            x_in = window[:t_in]
+            y_out = window[t_in:t_in + t_out]
 
-        return np.stack(X_windows), np.array(y_windows)
-    
+            X_in.append(x_in)
+            Y_out.append(y_out)
+
+        return np.stack(X_in), np.stack(Y_out)
+
     @staticmethod
-    def combine_csv_files(pattern="*.csv", window_size=24, stride=6):
-
-        X_all, y_all = [], []
+    def combine_csv_files(pattern="*.csv", window_size=24, stride=6, t_in=None, t_out=None):
+        """
+        Load multiple CSV files, build (X_in, Y_out) windows for seq2seq prediction.
+        """
+        X_all, Y_all = [], []
 
         for f in glob.glob(pattern):
             df = pd.read_csv(f)
 
-            # Extract IMU channels and labels
+            # Extract IMU channels only (no gesture column here)
             data = df[["acc_x","acc_y","acc_z","gyro_x","gyro_y","gyro_z"]].values
-            labels = df["gesture"].values
 
-            # Windowing
-            X, y = IMUSeq2SeqDataset.make_windows(data, labels, window_size, stride)
+            # Build input/output windows
+            X, Y = IMUSeq2SeqDataset.make_windows(data, window_size, stride, t_in, t_out)
             X_all.append(X)
-            y_all.append(y)
+            Y_all.append(Y)
 
         # Concatenate all files
         X_all = np.concatenate(X_all, axis=0)
-        y_all = np.concatenate(y_all, axis=0)
-        classes = np.unique(y_all)
-        class_to_idx = {c: i for i, c in enumerate(classes)}
-        y_onehot = np.zeros((len(y_all), len(classes)), dtype=np.float32)
-        for i, label in enumerate(y_all):
-          y_onehot[i, class_to_idx[label]] = 1.0
-        print("Classes:", classes)
-        print("Final dataset:", X_all.shape, y_onehot.shape)
-        return X_all, y_onehot, classes
+        Y_all = np.concatenate(Y_all, axis=0)
 
-def split_train_val(X, Y, val_ratio=0.2, seed=42):
-    """Split dataset into train/val sets"""
-    np.random.seed(seed)
-    idx = np.arange(len(X))
-    np.random.shuffle(idx)
-    n_val = int(len(X) * val_ratio)
-    val_idx, train_idx = idx[:n_val], idx[n_val:]
-    return  X[train_idx], Y[train_idx], X[val_idx], Y[val_idx]
+        print("Final dataset:", X_all.shape, Y_all.shape)  
+        return X_all, Y_all
+
+
+    def split_train_val(X, Y, val_ratio=0.2, seed=42):
+        """Split dataset into train/val sets"""
+        np.random.seed(seed)
+        idx = np.arange(len(X))
+        np.random.shuffle(idx)
+        n_val = int(len(X) * val_ratio)
+        val_idx, train_idx = idx[:n_val], idx[n_val:]
+        return  X[train_idx], Y[train_idx], X[val_idx], Y[val_idx]

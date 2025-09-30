@@ -42,7 +42,6 @@ class Encoder(nn.Module):
         outputs, (h, c) = self.lstm(x)  
         return outputs, (h, c)
 
-
 class Decoder(nn.Module):
     def __init__(self, output_dim=6, hidden_dim=128, num_layers=1, num_heads=16):
         super().__init__()
@@ -104,7 +103,7 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
         model.train()
         train_loss = 0.0
 
-        for X_in, Y_out, _ in train_loader:
+        for X_in, Y_out in train_loader:
             X_in, Y_out = X_in.to(device), Y_out.to(device)
             
             optim.zero_grad()
@@ -119,7 +118,7 @@ def train_loop(model, train_loader, val_loader, epochs=20, lr=1e-3, device="cpu"
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-          for X_in, Y_out, _ in val_loader:
+          for X_in, Y_out in val_loader:
               X_in, Y_out = X_in.to(device), Y_out.to(device)
               pred, _ = model(X_in)   
               loss = crit(pred, Y_out)
