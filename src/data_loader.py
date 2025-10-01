@@ -10,10 +10,11 @@ class IMUSeq2SeqDataset(Dataset):
     """
     Preprocess raw IMU window (mean removal, normalization, filtering, smoothing).
     """
-    def __init__(self, X, Y, t_in=127, sample_rate=48, lowpass_cutoff=15,
+    def __init__(self, X, Y, t_in=None, sample_rate=48, lowpass_cutoff=15,
                  mean_removal=True, normalize=True, lowpass=True, smoothing=True):
         self.X = torch.tensor(X, dtype=torch.float32) 
-        self.t_in = t_in
+        self.Y = torch.tensor(Y, dtype=torch.float32) 
+        self.t_in = t_in if t_in is not None else X.shape[1] // 2
 
         # Flags for preprocessing
         self.mean_removal = mean_removal
