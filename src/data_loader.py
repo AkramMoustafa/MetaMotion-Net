@@ -108,7 +108,7 @@ class IMUSeq2SeqDataset(Dataset):
         print("Final dataset:", X_all.shape, Y_all.shape)  
         return X_all, Y_all
 
-
+    @staticmethod
     def split_train_val(X, Y, val_ratio=0.2, seed=42):
         """Split dataset into train/val sets"""
         np.random.seed(seed)
