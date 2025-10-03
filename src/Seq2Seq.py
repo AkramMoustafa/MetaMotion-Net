@@ -25,7 +25,7 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:, :seq_len, :]
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim=6, d_model=128, hidden_dim=128, num_layers=1, dropout=0.0):
+    def __init__(self, input_dim=6, d_model=128, hidden_dim=128, num_layers=1, dropout=0.3):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, d_model)
         self.pe = PositionalEncoding(d_model)
