@@ -1,0 +1,22 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore virtual environments
+venv/
+.env/
+aaa.sb
+*SLURMOUT
+
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Ignore data files
+*.csv
+*.npy
+*.pt
+*.h5
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
