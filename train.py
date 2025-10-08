@@ -13,7 +13,7 @@ import os
 from src.data_loader import IMUSeq2SeqDataset
 from src.Seq2Seq import Encoder, Decoder, Seq2Seq, train_loop
 
-
+#Test 1
 GLOB_PATTERN = "*.csv"
 WINDOW_SIZE  = 36
 STRIDE       = 6
@@ -21,7 +21,7 @@ T_IN         = 24
 T_OUT        = 12
 BATCH_SIZE   = 128
 NUM_WORKERS  = 0
-EPOCHS       = 20
+EPOCHS       = 300
 LR           = 1e-3
 
 DATA_DIR = "data"
@@ -60,7 +60,7 @@ val_ds   = IMUSeq2SeqDataset(val_windows,   t_in=T_IN, t_out=T_OUT, normalize=Fa
 train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS, drop_last=True)
 val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, drop_last=False)
 
-encoder = Encoder(input_dim=6, d_model=128, hidden_dim=128)
+encoder = Encoder(input_dim=6, d_model=128, hidden_dim=128, num_layers = 2)
 decoder = Decoder(output_dim=6, hidden_dim=128, num_heads=8)
 model   = Seq2Seq(encoder, decoder, teacher_forcing=0.3, pred_steps=T_OUT).to(DEVICE)
 

@@ -42,7 +42,7 @@ train_joint(
     model,
     train_loader,
     val_loader,
-    epochs=20,
+    epochs=100,
     lr=1e-3,
     device=device
 )
