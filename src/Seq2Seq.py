@@ -95,10 +95,8 @@ class Seq2Seq(nn.Module):
         for t in range(self.pred_steps):
         
             if t == 0:
-                if Y_out is not None:
-                    y_prev = self.out2hid(Y_out[:, 0].unsqueeze(1))  
-                else:
-                    y_prev = torch.zeros(B, 1, 128, device=device)
+                # first decoder input = zero vector
+                y_prev = torch.zeros(B, 1, 128, device=device)
             else:
                 if (Y_out is not None) and (torch.rand(1).item() < self.teacher_forcing):
                     # teacher forcing: use ground truth at step t-1
