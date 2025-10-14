@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import math
+from copy import deepcopy
 
 """
 In this file the classification doesn't benefit from the sequence prediction 
@@ -101,10 +102,11 @@ class Seq2Seq(nn.Module):
                 if (Y_out is not None) and (torch.rand(1).item() < self.teacher_forcing):
                     # teacher forcing: use ground truth at step t-1
                     y_prev = self.out2hid(Y_out[:, t-1].unsqueeze(1))
+                    
                 else:
                     # use model's own last prediction
                     y_prev = self.out2hid(preds[-1].detach())
-
+          
             # Run one decoder step
             pred, (h, c), attn_w = self.decoder(y_prev, (h, c), output)
             preds.append(pred)
@@ -124,10 +126,14 @@ def train_loop(model, train_loader, val_loader, epochs=50, lr=1e-3, device="cpu"
     patience_counter = 0       
     early_stop_patience = 10  
 
+    ema_decay = 0.99
+    ema_model = deepcopy(model)
     for ep in range(1, epochs + 1):
         # Dynamic teacher forcing
         model.teacher_forcing = max(0.5 * (0.97 ** ep), 0.1)
-
+        with torch.no_grad():
+          for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+            ema_param.data.mul_(ema_decay).add_((1 - ema_decay) * param.data)
         model.train()
         train_loss = 0.0
         for X_in, Y_out in train_loader:
@@ -145,7 +151,7 @@ def train_loop(model, train_loader, val_loader, epochs=50, lr=1e-3, device="cpu"
         with torch.no_grad():
             for X_in, Y_out in val_loader:
                 X_in, Y_out = X_in.to(device), Y_out.to(device)
-                pred, _ = model(X_in)
+                pred, _ = ema_model(X_in)
                 loss = crit(pred, Y_out)
                 val_loss += loss.item()
 
