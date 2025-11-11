@@ -111,7 +111,6 @@ class StreamUI(QWidget):
         self.worker.wait()
         event.accept()
 
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = StreamUI()

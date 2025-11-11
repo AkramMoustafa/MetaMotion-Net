@@ -1,60 +1,171 @@
 import torch
 import torch.nn as nn
 import math
+from copy import deepcopy
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() *
+                             (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):
+        seq_len = x.size(1)
+        return x + self.pe[:, :seq_len, :]
+
+class Encoder(nn.Module):
+    def __init__(self, input_dim=6, d_model=128, hidden_dim=128, num_layers=1, dropout=0.3):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, d_model)
+        self.pe = PositionalEncoding(d_model)
+        self.lstm = nn.LSTM(
+            input_size=d_model,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True
+        )
+
+    def forward(self, x):
+        x = self.input_proj(x)
+        x = self.pe(x)
+        outputs, (h, c) = self.lstm(x)
+        return outputs, (h, c)
+
+class Decoder(nn.Module):
+    def __init__(self, output_dim=6, hidden_dim=128, num_layers=2, num_heads=8, dropout=0.1):
+        super().__init__()
+        self.lstm = nn.LSTM(
+            input_size=hidden_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True
+        )
+        self.attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, y_prev, hidden, encoder_outputs):
+        h, c = hidden
+
+        # Match layer counts
+        if h.size(0) != self.lstm.num_layers:
+            h = h[-self.lstm.num_layers:]
+            c = c[-self.lstm.num_layers:]
+
+        out, hidden = self.lstm(y_prev, (h, c))
+        attn_out, attn_weights = self.attn(out, encoder_outputs, encoder_outputs)
+        pred = self.fc(torch.tanh(attn_out))
+        return pred, hidden, attn_weights
 
 class Seq2SeqWithClassifier(nn.Module):
-    def __init__(self, encoder, decoder, num_classes, teacher_forcing=0.5, alpha=0.5):
+    def __init__(self, encoder, decoder, teacher_forcing=0.3, pred_steps=12,
+                 hidden_dim=128, num_classes=4, alpha=0.5):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
+        self.pred_steps = pred_steps
         self.teacher_forcing = teacher_forcing
-        self.alpha = alpha  
-        self.classifier_fc = nn.Linear(encoder.lstm.hidden_size, num_classes)
+        self.out2hid = nn.Linear(6, hidden_dim)
+        self.alpha = alpha
+
+        self.gesture_head = nn.Sequential(
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, num_classes)
+        )
 
     def forward(self, X_in, Y_out=None):
         B, T, C = X_in.shape
         device = X_in.device
 
         encoder_outputs, (h, c) = self.encoder(X_in)
+        gesture_logits = self.gesture_head(h[-1])  # [B, num_classes]
 
-        # Take the last hidden state
-        h_last = h[-1]
-        # put it in neural network for classification
-        logits = self.classifier_fc(h_last)
-
-        y_prev = X_in[:, -1:, :]
         preds = []
-        for t in range(T-1):
+        for t in range(self.pred_steps):
+            if t == 0:
+                y_prev = torch.zeros(B, 1, 128, device=device)
+            else:
+                if (Y_out is not None) and (torch.rand(1).item() < self.teacher_forcing):
+                    y_prev = self.out2hid(Y_out[:, t-1].unsqueeze(1))
+                else:
+                    y_prev = self.out2hid(preds[-1].detach())
+
             pred, (h, c), _ = self.decoder(y_prev, (h, c), encoder_outputs)
             preds.append(pred)
-            if (Y_out is not None) and (torch.rand(1, device=device) < self.teacher_forcing):
-                y_prev = Y_out[:, t:t+1, :]
-            else:
-                y_prev = pred.detach()
 
-        forecast = torch.cat(preds, dim=1)
-        return forecast, logits
+        return torch.cat(preds, dim=1), gesture_logits
 
-def train_joint(model, train_loader, val_loader, epochs=10, lr=1e-3, device="cpu"):
+def train_loop(model, train_loader, val_loader, epochs=50, lr=1e-3, device="cpu"):
     optim = torch.optim.Adam(model.parameters(), lr=lr)
-    mse_loss = nn.MSELoss()
-    ce_loss = nn.CrossEntropyLoss()
-    for ep in range(1, epochs+1):
+    crit = nn.MSELoss()
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, mode='min', factor=0.5, patience=5
+    )
+
+    best_val = float('inf')
+    patience_counter = 0       
+    early_stop_patience = 10  
+
+    ema_decay = 0.99
+    ema_model = deepcopy(model)
+    for ep in range(1, epochs + 1):
+        # Dynamic teacher forcing
+        model.teacher_forcing = max(0.5 * (0.97 ** ep), 0.1)
+        with torch.no_grad():
+          for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+            ema_param.data.mul_(ema_decay).add_((1 - ema_decay) * param.data)
         model.train()
         train_loss = 0.0
-        for X_in, Y_out, y_label in train_loader:
-            X_in, Y_out, y_label = X_in.to(device), Y_out.to(device), y_label.to(device)
-
+        for X_in, Y_out in train_loader:
+            X_in, Y_out = X_in.to(device), Y_out.to(device)
             optim.zero_grad()
-            forecast, logits = model(X_in, Y_out)
-
-            loss_forecast = mse_loss(forecast, Y_out)
-            loss_classify = ce_loss(logits, y_label) 
-            loss = (1 - model.alpha) * loss_forecast + model.alpha * loss_classify
-
+            pred, _ = model(X_in, Y_out)
+            loss = crit(pred, Y_out)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optim.step()
             train_loss += loss.item()
-            
-        print(f"Epoch {ep:02d} | train joint loss {loss_forecast/len(train_loader):.4f} | Loss Classify {loss_classify}")
+
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for X_in, Y_out in val_loader:
+                X_in, Y_out = X_in.to(device), Y_out.to(device)
+                pred, _ = ema_model(X_in)
+                loss = crit(pred, Y_out)
+                val_loss += loss.item()
+
+        # Average losses
+        train_loss /= len(train_loader)
+        val_loss /= len(val_loader)
+
+        # Scheduler step
+        scheduler.step(val_loss)
+
+        # Check if val loss improved
+        if val_loss < best_val - 1e-5:  
+            best_val = val_loss
+            patience_counter = 0
+            torch.save(model.state_dict(), "ClassifierModel.pt")
+        else:
+            patience_counter += 1
+
+        print(f"Epoch {ep:02d} | TF={model.teacher_forcing:.3f} | "
+              f"train MSE {train_loss:.6f} | val MSE {val_loss:.6f} | "
+              f"LR {optim.param_groups[0]['lr']:.6e}")
+
+        # Early stopping condition
+        if patience_counter >= early_stop_patience:
+            print(f"?? Early stopping triggered after {ep} epochs (no improvement for {early_stop_patience}).")
+            break
+
+    print(f"? Training complete. Best val MSE: {best_val:.6f}")

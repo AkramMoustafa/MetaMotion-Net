@@ -16,7 +16,7 @@ aaa.sb
 *.npy
 *.pt
 *.h5
-
+.nfs*
 # Ignore OS files
 .DS_Store
 Thumbs.db

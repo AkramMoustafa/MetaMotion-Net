@@ -14,8 +14,8 @@ from PyQt5.QtCore import QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QColor, QFont
 from snaptic_sdk import PySnapticSDK
 
-SAMPLE_RATE = 48  # Hz
-WINDOW_SECONDS = 2.65  # window length
+SAMPLE_RATE = 48 
+WINDOW_SECONDS = 2.65  
 WINDOW_SIZE = int(SAMPLE_RATE * WINDOW_SECONDS)
 
 AVAILABLE_GESTURES = [
@@ -30,6 +30,7 @@ class SnapticWorker(QThread):
     gesture_once = pyqtSignal(str)
     # Logging/status back to UI
     log_signal = pyqtSignal(str, str)
+    sample_signal = pyqtSignal(np.ndarray)
 
     def __init__(self, logfile=None):
         super().__init__()
@@ -112,6 +113,11 @@ class SnapticWorker(QThread):
                         gyro_y = pkt["MainGyro"]["Y"]
                         gyro_z = pkt["MainGyro"]["Z"]
 
+                        vec6 = np.array([acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z], dtype=np.float32)
+                        print(f"📡 Emitting sample: {vec6}")
+
+                        self.sample_signal.emit(vec6)
+                      
                         msg = (
                             f"Packet {pkt['PacketNum']} | "
                             f"Accel=({acc_x:.2f}, {acc_y:.2f}, {acc_z:.2f}) | "
