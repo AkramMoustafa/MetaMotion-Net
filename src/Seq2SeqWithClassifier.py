@@ -20,7 +20,7 @@ class PositionalEncoding(nn.Module):
         return x + self.pe[:, :seq_len, :]
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim=6, d_model=128, hidden_dim=128, num_layers=1, dropout=0.3):
+    def __init__(self, input_dim=6, d_model=128, hidden_dim=128, num_layers=2, dropout=0.3):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, d_model)
         self.pe = PositionalEncoding(d_model)
@@ -54,15 +54,10 @@ class Decoder(nn.Module):
     def forward(self, y_prev, hidden, encoder_outputs):
         h, c = hidden
 
-        # Match layer counts
-        if h.size(0) != self.lstm.num_layers:
-            h = h[-self.lstm.num_layers:]
-            c = c[-self.lstm.num_layers:]
-
-        out, hidden = self.lstm(y_prev, (h, c))
+        out, (h, c) = self.lstm(y_prev, (h, c))
         attn_out, attn_weights = self.attn(out, encoder_outputs, encoder_outputs)
         pred = self.fc(torch.tanh(attn_out))
-        return pred, hidden, attn_weights
+        return pred, (h, c), attn_weights
 
 class Seq2SeqWithClassifier(nn.Module):
     def __init__(self, encoder, decoder, teacher_forcing=0.3, pred_steps=12,
@@ -103,69 +98,118 @@ class Seq2SeqWithClassifier(nn.Module):
 
         return torch.cat(preds, dim=1), gesture_logits
 
-def train_loop(model, train_loader, val_loader, epochs=50, lr=1e-3, device="cpu"):
+def train_classifier_loop(
+    model,
+    train_loader,
+    val_loader,
+    epochs=50,
+    lr=1e-3,
+    alpha=0.5,
+    device="cpu"
+):
+    model.to(device)
+
+    # Losses
+    mse_loss = nn.MSELoss()
+    ce_loss = nn.CrossEntropyLoss()
+
     optim = torch.optim.Adam(model.parameters(), lr=lr)
-    crit = nn.MSELoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optim, mode='min', factor=0.5, patience=5
     )
 
-    best_val = float('inf')
-    patience_counter = 0       
-    early_stop_patience = 10  
+    best_val = float("inf")
+    patience_counter = 0
+    early_stop_patience = 10
 
-    ema_decay = 0.99
+    # EMA model
     ema_model = deepcopy(model)
+    ema_decay = 0.99
+
     for ep in range(1, epochs + 1):
-        # Dynamic teacher forcing
+
+        # dynamic teacher forcing
         model.teacher_forcing = max(0.5 * (0.97 ** ep), 0.1)
+
+        # EMA update
         with torch.no_grad():
-          for ema_param, param in zip(ema_model.parameters(), model.parameters()):
-            ema_param.data.mul_(ema_decay).add_((1 - ema_decay) * param.data)
+            for ema_param, param in zip(ema_model.parameters(), model.parameters()):
+                ema_param.data.mul_(ema_decay).add_((1 - ema_decay) * param.data)
+
         model.train()
         train_loss = 0.0
-        for X_in, Y_out in train_loader:
-            X_in, Y_out = X_in.to(device), Y_out.to(device)
+        train_cls_correct = 0
+        train_total = 0
+
+        for X_in, Y_out, labels in train_loader:
+            X_in  = X_in.to(device)
+            Y_out = Y_out.to(device)
+            labels = labels.to(device)
+
             optim.zero_grad()
-            pred, _ = model(X_in, Y_out)
-            loss = crit(pred, Y_out)
+
+            pred_seq, gesture_logits = model(X_in, Y_out)
+
+            loss_pred = mse_loss(pred_seq, Y_out)
+            loss_cls  = ce_loss(gesture_logits, labels)
+
+            loss = loss_pred + alpha * loss_cls
             loss.backward()
+
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optim.step()
+
             train_loss += loss.item()
 
-        model.eval()
+            preds = gesture_logits.argmax(dim=1)
+            train_cls_correct += (preds == labels).sum().item()
+            train_total += labels.size(0)
+
+        train_acc = train_cls_correct / train_total
+
+        ema_model.eval()
         val_loss = 0.0
+        val_cls_correct = 0
+        val_total = 0
+
         with torch.no_grad():
-            for X_in, Y_out in val_loader:
-                X_in, Y_out = X_in.to(device), Y_out.to(device)
-                pred, _ = ema_model(X_in)
-                loss = crit(pred, Y_out)
+            for X_in, Y_out, labels in val_loader:
+                X_in  = X_in.to(device)
+                Y_out = Y_out.to(device)
+                labels = labels.to(device)
+
+                pred_seq, gesture_logits = ema_model(X_in)
+
+                loss_pred = mse_loss(pred_seq, Y_out)
+                loss_cls  = ce_loss(gesture_logits, labels)
+
+                loss = loss_pred + alpha * loss_cls
                 val_loss += loss.item()
 
-        # Average losses
-        train_loss /= len(train_loader)
-        val_loss /= len(val_loader)
+                preds = gesture_logits.argmax(dim=1)
+                val_cls_correct += (preds == labels).sum().item()
+                val_total += labels.size(0)
 
-        # Scheduler step
+        val_acc = val_cls_correct / val_total
+
         scheduler.step(val_loss)
 
-        # Check if val loss improved
-        if val_loss < best_val - 1e-5:  
+        print(f"Epoch {ep:02d} | TF={model.teacher_forcing:.3f} | "
+              f"Train Loss={train_loss/len(train_loader):.6f} | "
+              f"Train Acc={train_acc:.3f} | "
+              f"Val Loss={val_loss/len(val_loader):.6f} | "
+              f"Val Acc={val_acc:.3f}")
+
+        if val_loss < best_val - 1e-5:
             best_val = val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), "ClassifierModel.pt")
+            torch.save(model.state_dict(), "best_classifier_model.pt")
         else:
             patience_counter += 1
 
-        print(f"Epoch {ep:02d} | TF={model.teacher_forcing:.3f} | "
-              f"train MSE {train_loss:.6f} | val MSE {val_loss:.6f} | "
-              f"LR {optim.param_groups[0]['lr']:.6e}")
-
-        # Early stopping condition
         if patience_counter >= early_stop_patience:
-            print(f"?? Early stopping triggered after {ep} epochs (no improvement for {early_stop_patience}).")
+            print("Early stopping triggered.")
             break
 
-    print(f"? Training complete. Best val MSE: {best_val:.6f}")
+    print(f"Training complete. Best Val Loss: {best_val:.6f}")
