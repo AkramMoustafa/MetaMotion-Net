@@ -39,3 +39,28 @@ class IMUSeq2SeqClassifierDataset(IMUSeq2SeqDataset):
             windows.append(window)
             labels.append(gesture_to_idx.get(majority, 0))
         return np.stack(windows), np.array(labels)
+    def build_windows_per_frame(csv_path, window_size, stride, gesture_to_idx):
+        import pandas as pd
+        import numpy as np
+
+        df = pd.read_csv(csv_path)
+        df["gesture"] = df["gesture"].ffill().fillna("no_gesture")
+
+        data = df[["acc_x","acc_y","acc_z","gyro_x","gyro_y","gyro_z"]].values
+        gestures = df["gesture"].values
+
+        windows = []
+        labels = []
+
+        for start in range(0, len(data) - window_size + 1, stride):
+            end = start + window_size
+
+            window_data = data[start:end]               # shape: [36, 6]
+            window_gestures = gestures[start:end]       # shape: [36]
+
+            window_lbl = [gesture_to_idx[g] for g in window_gestures]
+
+            windows.append(window_data)
+            labels.append(window_lbl)
+
+        return np.array(windows), np.array(labels)
