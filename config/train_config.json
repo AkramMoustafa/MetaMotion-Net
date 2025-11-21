@@ -1,0 +1,41 @@
+{
+  "global": {
+    "seed": 42,
+    "scaler_path": "data/scaler.pkl",
+    "device": "auto"
+  },
+
+  "dataset": {
+    "window_size": 24,
+    "max_time_to_gesture": 200,
+    "seq2seq_input": 24,
+    "seq2seq_output": 12
+  },
+
+  "time_to_gesture": {
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "learning_rate": 0.001,
+    "epochs": 25,
+    "batch_size": 32
+  },
+
+  "classifier": {
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "num_classes": 4,
+    "learning_rate": 0.001,
+    "epochs": 20,
+    "batch_size": 32
+  },
+
+  "seq2seq": {
+    "d_model": 128,
+    "hidden_dim": 128,
+    "num_layers": 2,
+    "pred_steps": 12,
+    "teacher_forcing": 0.5,
+    "learning_rate": 0.001,
+    "epochs": 40
+  }
+}
