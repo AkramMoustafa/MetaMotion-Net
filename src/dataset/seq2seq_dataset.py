@@ -5,7 +5,7 @@ import pandas as pd
 from torch.utils.data import Dataset
 from scipy.signal import butter, filtfilt
 
-class NextGestureDataset(Dataset):
+class IMUSeq2SeqDataset(Dataset):
     """
     Dataset that takes raw windows and splits into (x_in, y_out).
     """

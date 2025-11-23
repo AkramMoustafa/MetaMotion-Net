@@ -5,39 +5,37 @@ import torch
 from torch.utils.data import DataLoader
 import joblib
 
-from train.config_loader import load_config
-from dataset.seq2seq_dataset import IMUSeq2SeqDataset
-from models.seq2seq import Encoder, Decoder, Seq2SeqForecaster
-from train.train_utils import set_seed, get_device, save_model
+from src.config_loader import load_config
+from src.dataset.seq2seq_dataset import IMUSeq2SeqDataset
+from src.models.seq2seq_forecaster import Encoder, Decoder, Seq2SeqForecaster, train_loop
+from src.train_utils import set_seed, get_device, save_model
 
 cfg = load_config()
+
 global_cfg = cfg["global"]
 seq_cfg    = cfg["seq2seq"]
 
-# Paths
 ROOT = os.getcwd()
 DATA_DIR = os.path.join(ROOT, "data")
 ZIP_PATH = os.path.join(DATA_DIR, "snaptic_logs.zip")
 EXTRACT_PATH = os.path.join(DATA_DIR, "logs")
 
-SCALER_PATH = os.path.join(ROOT, global_cfg["save_dir"], seq_cfg["scaler_name"])
-MODEL_SAVE_PATH = os.path.join(ROOT, global_cfg["save_dir"], seq_cfg["model_name"])
-
-os.makedirs(os.path.join(ROOT, global_cfg["save_dir"]), exist_ok=True)
+SCALER_PATH = os.path.join(ROOT, seq_cfg["scaler_name"])
+MODEL_SAVE_PATH = os.path.join(ROOT, seq_cfg["model_name"])
 
 if not os.path.exists(EXTRACT_PATH):
     os.makedirs(EXTRACT_PATH, exist_ok=True)
     with zipfile.ZipFile(ZIP_PATH, "r") as zip_ref:
         zip_ref.extractall(EXTRACT_PATH)
-    print(f"Extracted logs to {EXTRACT_PATH}")
+    print("Extracted log files.")
 else:
     print("ZIP already extracted.")
-
-GLOB_PATTERN = os.path.join(EXTRACT_PATH, "*.csv")
 
 DEVICE = get_device()
 set_seed(global_cfg["seed"])
 print("Using device:", DEVICE)
+
+GLOB_PATTERN = os.path.join(EXTRACT_PATH, "*.csv")
 
 windows = IMUSeq2SeqDataset.combine_csv_files(
     pattern=GLOB_PATTERN,
@@ -48,8 +46,8 @@ windows = IMUSeq2SeqDataset.combine_csv_files(
 print("Raw windows:", windows.shape)  # (N, 36, 6)
 
 N, T, C = windows.shape
-
 from sklearn.preprocessing import StandardScaler
+
 scaler = StandardScaler()
 scaler.fit(windows.reshape(-1, C))
 
@@ -68,7 +66,6 @@ train_loader = DataLoader(
     train_ds,
     batch_size=seq_cfg["batch_size"],
     shuffle=True,
-    num_workers=0,
     drop_last=True
 )
 
@@ -76,7 +73,6 @@ val_loader = DataLoader(
     val_ds,
     batch_size=seq_cfg["batch_size"],
     shuffle=False,
-    num_workers=0,
     drop_last=False
 )
 
@@ -100,7 +96,6 @@ model = Seq2SeqForecaster(
     pred_steps=seq_cfg["t_out"]
 ).to(DEVICE)
 
-from models.seq2seq import train_loop
 train_loop(
     model=model,
     train_loader=train_loader,

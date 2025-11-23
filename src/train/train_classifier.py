@@ -8,9 +8,9 @@ import torch
 from torch.utils.data import DataLoader
 import joblib
 
-from dataset.next_gesture_dataset import NextGestureDataset
-from models.next_gesture_classifier import NextGestureClassifier
-from train.train_utils import set_seed, get_device, save_model
+from src.dataset.next_gesture_dataset import NextGestureDataset
+from src.models.next_gesture_classifier import NextGestureClassifier
+from src.train_utils import set_seed, get_device, save_model
 
 CONFIG_PATH = "config/train_config.json"
 with open(CONFIG_PATH, "r") as f:
@@ -41,16 +41,10 @@ scaler = joblib.load(SCALER_PATH)
 csv_files = glob.glob(os.path.join(EXTRACT_DIR, "*.csv"))
 print(f"Found {len(csv_files)} CSV files.")
 
-gesture_to_idx = {
-    "no_gesture": 0,
-    "swipe_up": 1,
-    "swipe_left": 2,
-    "swipe_right": 3
-}
 
 all_imu = []
 all_labels = []
-
+gesture_to_idx = config["gesture_map"]
 for file in csv_files:
     df = pd.read_csv(file)
     df["gesture"] = df["gesture"].ffill().fillna("no_gesture")

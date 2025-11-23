@@ -7,10 +7,10 @@ import torch
 from torch.utils.data import DataLoader
 import joblib
 
-from train.config_loader import load_config
-from dataset.time_to_gesture_dataset import TimeToGestureDataset
-from models.time_to_gesture_regressor import TimeToGestureRegressor
-from train.train_utils import set_seed, get_device, save_model
+from src.config_loader import load_config
+from src.dataset.time_to_gesture_dataset import TimeToGestureDataset
+from src.models.time_to_gesture_regressor import TimeToGestureRegressor
+from src.train_utils import set_seed, get_device, save_model
 
 # Load config.json
 cfg = load_config()

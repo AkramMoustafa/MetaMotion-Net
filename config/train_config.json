@@ -1,9 +1,18 @@
 {
-  "global": {
+ "global": {
     "seed": 42,
-    "scaler_path": "data/scaler.pkl",
-    "device": "auto"
-  },
+    "scaler_path": "scaler.pkl",
+    "save_dir": "saved_models",
+    "device": "auto",
+    "input_dim": 6,
+    "gesture_map": {
+      "no_gesture": 0,
+      "swipe_up": 1,
+      "swipe_left": 2,
+      "swipe_right": 3
+    }
+
+},
 
   "dataset": {
     "window_size": 24,
@@ -13,11 +22,14 @@
   },
 
   "time_to_gesture": {
-    "hidden_dim": 128,
+   "hidden_dim": 128,
     "num_layers": 2,
     "learning_rate": 0.001,
     "epochs": 25,
-    "batch_size": 32
+    "batch_size": 32,
+    "window_size": 36,
+    "max_time": 200,
+    "model_name": "time_to_gesture_regressor.pt"
   },
 
   "classifier": {
@@ -26,16 +38,36 @@
     "num_classes": 4,
     "learning_rate": 0.001,
     "epochs": 20,
-    "batch_size": 32
+    "batch_size": 32,
+    "model_name": "next_gesture_classifier.pt"
   },
 
-  "seq2seq": {
+  "gesture_map": {
+    "no_gesture": 0,
+    "swipe_up": 1,
+    "swipe_left": 2,
+    "swipe_right": 3
+  },
+"seq2seq": {
     "d_model": 128,
     "hidden_dim": 128,
     "num_layers": 2,
     "pred_steps": 12,
     "teacher_forcing": 0.5,
     "learning_rate": 0.001,
-    "epochs": 40
-  }
+    "epochs": 40,
+    
+    "window_size": 36,
+    "stride": 6,
+    "val_split": 0.1,
+
+    "t_in": 24,
+    "t_out": 12,
+
+    "batch_size": 32,
+    "num_heads": 8,
+
+    "model_name": "seq2seq_model.pt",
+    "scaler_name": "seq2seq_scaler.pkl"
+}
 }

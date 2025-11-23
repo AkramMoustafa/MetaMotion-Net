@@ -5,7 +5,40 @@ import math
 from copy import deepcopy
 from src.models.shared_layers import Encoder
 
+class Decoder(nn.Module):
+    def __init__(self, output_dim=6, hidden_dim=128, num_layers=2, num_heads=8, dropout=0.1):
+        super().__init__()
+        self.lstm = nn.LSTM(
+            input_size=hidden_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True
+        )
+        self.attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=num_heads, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.act = nn.ReLU()
+
+    def forward(self, y_prev, hidden, encoder_outputs):
+        h, c = hidden
+
+        # Match LSTM layer count
+        if h.size(0) != self.lstm.num_layers:
+            h = h[-self.lstm.num_layers:]
+            c = c[-self.lstm.num_layers:]
+
+        # Decode one timestep
+        out, hidden = self.lstm(y_prev, (h, c))
+        attn_out, attn_weights = self.attn(out, encoder_outputs, encoder_outputs)
+        # out = out + self.dropout(attn_out)
+        
+        pred = self.fc(torch.tanh(attn_out))
+        return pred, hidden, attn_weights
+
+
 class Seq2SeqForecaster(nn.Module):
+    
+    
     def __init__(self, encoder, decoder, teacher_forcing=0.3, pred_steps=12):
         super().__init__()
         self.pred_steps = pred_steps
