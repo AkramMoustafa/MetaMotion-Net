@@ -1,14 +1,16 @@
-# model_time_to_gesture.py
+# src/models/time_to_gesture_regressor.py
+
 import torch
 import torch.nn as nn
-import math
 from src.models.shared_layers import Encoder
+
 
 class TimeToGestureRegressor(nn.Module):
     """
     Takes IMU window [batch, T, 6]
-    Outputs single scalar per sample = time until next gesture.
+    Outputs single scalar per sample = normalized time until next gesture.
     """
+
     def __init__(self, input_dim=6, hidden_dim=128, num_layers=2):
         super().__init__()
 
@@ -20,26 +22,27 @@ class TimeToGestureRegressor(nn.Module):
             dropout=0.3
         )
 
-        # Regression head → predicts time until next gesture (frames)
+        # Improved regression head
         self.time_head = nn.Sequential(
             nn.LayerNorm(hidden_dim),
+            nn.Linear(hidden_dim, 128),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 64),
+            nn.Dropout(0.2),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
-            nn.Sigmoid()   
+            nn.Softplus()  
         )
 
     def forward(self, X_in):
         """
         X_in: [batch, T, 6]
         """
-        encoder_outputs, (h, c) = self.encoder(X_in)
 
-        # Final hidden state from encoder
-        h_last = h[-1]  # shape: [batch, hidden_dim]
+        encoder_outputs, _ = self.encoder(X_in)
 
-        # Predict time to next gesture
-        y = self.time_head(h_last)
+        h_mean = encoder_outputs.mean(dim=1)
 
-        return y.squeeze(-1)  # [batch]
+        y = self.time_head(h_mean)
+
+        return y.squeeze(-1)

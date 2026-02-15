@@ -87,7 +87,7 @@ model = TimeToGestureRegressor(
     num_layers=task_cfg["num_layers"]
 ).to(device)
 
-criterion = torch.nn.SmoothL1Loss()
+criterion = torch.nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=task_cfg["learning_rate"])
 
 epochs = task_cfg["epochs"]
@@ -103,6 +103,7 @@ for epoch in range(epochs):
         pred = model(x)
         loss = criterion(pred, y)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
         total_loss += loss.item()
