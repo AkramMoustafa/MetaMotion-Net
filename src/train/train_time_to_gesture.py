@@ -96,6 +96,9 @@ for epoch in range(epochs):
     model.train()
     total_loss = 0
 
+    all_preds = []
+    all_targets = []
+
     for x, y in loader:
         x, y = x.to(device), y.to(device)
 
@@ -108,8 +111,21 @@ for epoch in range(epochs):
 
         total_loss += loss.item()
 
+        all_preds.append(pred.detach().cpu())
+        all_targets.append(y.detach().cpu())
+
     avg_loss = total_loss / len(loader)
-    print(f"Epoch {epoch+1}/{epochs} | Loss={avg_loss:.4f}")
+
+    all_preds = torch.cat(all_preds)
+    all_targets = torch.cat(all_targets)
+
+    print(
+        f"Epoch {epoch+1}/{epochs} | "
+        f"Loss={avg_loss:.4f} | "
+        f"Pred std={all_preds.std():.4f} | "
+        f"GT std={all_targets.std():.4f}"
+    )
+
 
 save_model(model, MODEL_SAVE_PATH)
 print(f"Model saved → {MODEL_SAVE_PATH}")

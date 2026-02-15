@@ -22,7 +22,8 @@ class TimeToGestureRegressor(nn.Module):
             dropout=0.3
         )
 
-        # Improved regression head
+        self.attn = nn.Linear(hidden_dim, 1)
+
         self.time_head = nn.Sequential(
             nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, 128),
@@ -31,7 +32,7 @@ class TimeToGestureRegressor(nn.Module):
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
-            nn.Softplus()  
+            nn.Softplus()
         )
 
     def forward(self, X_in):
@@ -41,8 +42,11 @@ class TimeToGestureRegressor(nn.Module):
 
         encoder_outputs, _ = self.encoder(X_in)
 
-        h_mean = encoder_outputs.mean(dim=1)
+        weights = torch.softmax(self.attn(encoder_outputs), dim=1)
 
-        y = self.time_head(h_mean)
+        h_attn = (weights * encoder_outputs).sum(dim=1)
+        # shape: [batch, hidden_dim]
+
+        y = self.time_head(h_attn)
 
         return y.squeeze(-1)
