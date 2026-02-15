@@ -72,7 +72,29 @@ dataset = MultiTaskIMUDataset(
     max_time=D["max_time_to_gesture"]
 )
 
-loader = DataLoader(dataset, batch_size=S["batch_size"], shuffle=True)
+from torch.utils.data import random_split
+
+# total size
+n_total = len(dataset)
+
+# proportions
+n_test = int(0.15 * n_total)
+n_val  = int(0.15 * n_total)
+n_train = n_total - n_test - n_val
+
+# split dataset
+train_ds, val_ds, test_ds = random_split(
+    dataset,
+    [n_train, n_val, n_test],
+    generator=torch.Generator().manual_seed(G["seed"])
+)
+
+print("Train:", len(train_ds), "Val:", len(val_ds), "Test:", len(test_ds))
+
+# build dataloaders
+train_loader = DataLoader(train_ds, batch_size=S["batch_size"], shuffle=True)
+val_loader   = DataLoader(val_ds,   batch_size=S["batch_size"], shuffle=False)
+test_loader  = DataLoader(test_ds,  batch_size=S["batch_size"], shuffle=False)
 
 set_seed(G["seed"])
 device = get_device()
@@ -106,15 +128,21 @@ optimizer = torch.optim.Adam(model.parameters(), lr=S["learning_rate"])
 
 epochs = S["epochs"]
 
-for epoch in range(1, epochs + 1):
-    model.train()
-    total_loss = 0
+best_val_loss = float("inf")
+lambda_seq = 1.0
+lambda_cls = 1.0
+lambda_ttg = 5.0   # try 3.0 to 10.0
 
-    for x, y_seq, y_cls, y_ttg in loader:
-        x = x.to(device)
-        y_seq = y_seq.to(device)
-        y_cls = y_cls.to(device)
-        y_ttg = y_ttg.to(device)
+train_loss = 0
+train_loss_ttg = 0
+for epoch in range(1, epochs + 1):
+
+    model.train()
+    train_loss = 0
+    train_loss_ttg = 0
+
+    for x, y_seq, y_cls, y_ttg in train_loader:
+        x, y_seq, y_cls, y_ttg = x.to(device), y_seq.to(device), y_cls.to(device), y_ttg.to(device)
 
         optimizer.zero_grad()
 
@@ -125,14 +153,69 @@ for epoch in range(1, epochs + 1):
         loss_ttg = mse(pred_ttg, y_ttg)
 
         loss = loss_seq + loss_cls + loss_ttg
-
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item()
+        train_loss += loss.item()
+        train_loss_ttg += loss_ttg.item()
 
-    avg = total_loss / len(loader)
-    print(f"Epoch {epoch}/{epochs} | Loss={avg:.4f}")
+    
+    avg_train = train_loss / len(train_loader)
+    avg_train_ttg = train_loss_ttg / len(train_loader)
+
+    model.eval()
+    val_loss = 0
+    with torch.no_grad():
+        for x, y_seq, y_cls, y_ttg in val_loader:
+            x, y_seq, y_cls, y_ttg = x.to(device), y_seq.to(device), y_cls.to(device), y_ttg.to(device)
+
+            pred_seq, pred_cls, pred_ttg = model(x)
+
+            loss_seq = mse(pred_seq, y_seq)
+            loss_cls = ce(pred_cls, y_cls)
+            loss_ttg = mse(pred_ttg, y_ttg)
+
+            loss = (
+                lambda_seq * loss_seq +
+                lambda_cls * loss_cls +
+                lambda_ttg * loss_ttg
+            )
+            val_loss += loss.item()
+
+    avg_val = val_loss / len(val_loader)
+
+    print(
+        f"Epoch {epoch}/{epochs} | "
+        f"Train Loss={avg_train:.4f} | "
+        f"Val Loss={avg_val:.4f} | "
+        f"Train TTG={avg_train_ttg:.4f}"
+    )
+
+    # Save best model
+    if avg_val < best_val_loss:
+        best_val_loss = avg_val
+        torch.save(model.state_dict(), "multitask_best.pt")
+        print("? Saved best model")
+
+
 
 torch.save(model.state_dict(), "multitask_model.pt")
 print("Saved model multitask_model.pt")
+
+model.eval()
+test_loss = 0
+
+with torch.no_grad():
+    for x, y_seq, y_cls, y_ttg in test_loader:
+        x, y_seq, y_cls, y_ttg = x.to(device), y_seq.to(device), y_cls.to(device), y_ttg.to(device)
+
+        pred_seq, pred_cls, pred_ttg = model(x)
+
+        loss_seq = mse(pred_seq, y_seq)
+        loss_cls = ce(pred_cls, y_cls)
+        loss_ttg = mse(pred_ttg, y_ttg)
+
+        test_loss += (loss_seq + loss_cls + loss_ttg).item()
+
+avg_test = test_loss / len(test_loader)
+print(f"\nFinal TEST Loss = {avg_test:.4f}")

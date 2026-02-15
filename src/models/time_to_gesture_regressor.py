@@ -26,7 +26,8 @@ class TimeToGestureRegressor(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, 64),
             nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Linear(64, 1),
+            nn.Sigmoid()   
         )
 
     def forward(self, X_in):

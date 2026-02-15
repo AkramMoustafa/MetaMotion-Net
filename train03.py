@@ -10,8 +10,8 @@ from sklearn.preprocessing import StandardScaler
 import joblib  # for saving scaler
 import zipfile
 import os
-from src.data_loader import IMUSeq2SeqDataset
-from src.Seq2Seq03 import Encoder, Decoder, Seq2Seq, train_loop
+from src.dataset.seq2seq_dataset import IMUSeq2SeqDataset
+from src.models.seq2seq_forecaster import Encoder, Decoder, Seq2SeqForecaster, train_loop
 
 #Test 1
 GLOB_PATTERN = "*.csv"
@@ -62,7 +62,7 @@ val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, num_wo
 
 encoder = Encoder(input_dim=6, d_model=128, hidden_dim=128, num_layers = 2)
 decoder = Decoder(output_dim=6, hidden_dim=128, num_heads=8)
-model   = Seq2Seq(encoder, decoder, teacher_forcing=0.3, pred_steps=T_OUT).to(DEVICE)
+model   = Seq2SeqForecaster(encoder, decoder, teacher_forcing=0.3, pred_steps=T_OUT).to(DEVICE)
 
 train_loop(model, train_loader, val_loader, epochs=EPOCHS, lr=LR, device=DEVICE)
 
