@@ -8,7 +8,8 @@ def find_gesture_onsets(gesture_labels):
         if gesture_labels[i] != 0 and gesture_labels[i-1] == 0:
             onsets.append(i)
     return onsets
-# 
+
+
 def compute_time_to_gesture(gesture_labels, max_value=200):
     T = len(gesture_labels)
     onsets = find_gesture_onsets(gesture_labels)
@@ -22,15 +23,17 @@ def compute_time_to_gesture(gesture_labels, max_value=200):
 
     return time_to
 
+
 class TimeToGestureDataset(Dataset):
     def __init__(self, imu_data, gesture_labels, window_size=24, max_time=200):
         self.data = imu_data
         self.labels = gesture_labels
         self.window_size = window_size
         self.max_time = max_time
- 
+
         time_to = compute_time_to_gesture(self.labels, max_value=self.max_time)
-        self.time_to = time_to / self.max_time
+        self.time_to = np.log1p(time_to) / np.log1p(self.max_time)
+
         self.samples = []
         self.build_samples()
 

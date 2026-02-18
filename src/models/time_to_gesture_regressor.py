@@ -19,7 +19,7 @@ class TimeToGestureRegressor(nn.Module):
             d_model=128,
             hidden_dim=hidden_dim,
             num_layers=num_layers,
-            dropout=0.3
+            dropout=0.0
         )
 
         self.attn = nn.Linear(hidden_dim, 1)
@@ -28,11 +28,10 @@ class TimeToGestureRegressor(nn.Module):
             nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, 128),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.0),
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Linear(64, 1),
-            nn.Softplus()
+            nn.Linear(64, 1)
         )
 
     def forward(self, X_in):
@@ -48,5 +47,5 @@ class TimeToGestureRegressor(nn.Module):
         # shape: [batch, hidden_dim]
 
         y = self.time_head(h_attn)
-
+        y = torch.sigmoid(y)
         return y.squeeze(-1)
