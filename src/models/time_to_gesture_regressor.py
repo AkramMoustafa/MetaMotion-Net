@@ -34,18 +34,28 @@ class TimeToGestureRegressor(nn.Module):
             nn.Linear(64, 1)
         )
 
+    # def forward(self, X_in):
+    #     """
+    #     X_in: [batch, T, 6]
+    #     """
+
+    #     encoder_outputs, _ = self.encoder(X_in)
+
+    #     weights = torch.softmax(self.attn(encoder_outputs), dim=1)
+
+    #     h_attn = (weights * encoder_outputs).sum(dim=1)
+    #     # shape: [batch, hidden_dim]
+
+    #     y = self.time_head(h_attn)
+    #     y = torch.sigmoid(y)
+    #     return y.squeeze(-1)
     def forward(self, X_in):
-        """
-        X_in: [batch, T, 6]
-        """
 
         encoder_outputs, _ = self.encoder(X_in)
 
-        weights = torch.softmax(self.attn(encoder_outputs), dim=1)
+        h = encoder_outputs.mean(dim=1)   
 
-        h_attn = (weights * encoder_outputs).sum(dim=1)
-        # shape: [batch, hidden_dim]
-
-        y = self.time_head(h_attn)
-        y = torch.sigmoid(y)
+        y = self.time_head(h)
+        y = torch.sigmoid(y) 
+        
         return y.squeeze(-1)

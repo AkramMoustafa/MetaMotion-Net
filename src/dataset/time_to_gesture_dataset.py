@@ -32,8 +32,11 @@ class TimeToGestureDataset(Dataset):
         self.max_time = max_time
 
         time_to = compute_time_to_gesture(self.labels, max_value=self.max_time)
-        self.time_to = np.log1p(time_to) / np.log1p(self.max_time)
-
+        # self.time_to = np.log1p(time_to) / np.log1p(self.max_time)
+        # self.time_to = time_to / self.max_time
+        tau = 20  
+        self.time_to = np.exp(-time_to / tau)
+        
         self.samples = []
         self.build_samples()
 
